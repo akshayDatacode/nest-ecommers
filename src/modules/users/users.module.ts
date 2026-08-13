@@ -20,6 +20,7 @@ import { AuthModule } from '../auth/auth.module';
         schema: UserSchema,
       },
     ]),
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
   ],
 
   controllers: [UsersController],

@@ -36,6 +36,18 @@ export class User {
     default: true,
   })
   isActive: boolean;
+
+  @Prop({
+    type: String, // Explicitly specify the type
+    default: null,
+  })
+  emailVerificationToken: string | null;
+
+  @Prop({
+    type: Date, // Explicitly specify the type
+    default: null,
+  })
+  emailVerificationTokenExpires: Date | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
