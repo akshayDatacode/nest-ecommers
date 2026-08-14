@@ -2,15 +2,20 @@ import {
   Body,
   Controller,
   NotFoundException,
+  Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { UsersService } from '../users/users.service';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -50,5 +55,34 @@ export class AuthController {
   @Post('verify-email')
   async verifyEmail(@Query('token') token: string) {
     return this.usersService.verifyEmail(token);
+  }
+
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60 * 1000,
+    },
+  }) // Allow 5 requests per minute
+  @Post('forgot-password')
+  async forgotPassword(@Body('email') email: string) {
+    return this.usersService.forgotPassword(email);
+  }
+
+  @Post('reset-password')
+  async resetPassword(
+    @Query('token') token: string,
+    @Body('password') password: string,
+  ) {
+    return this.usersService.resetPassword(token, password);
+  }
+
+  @Patch('change-password')
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @CurrentUser('sub') userId: string, // Extract user ID from the JWT payload
+    @Body('currentPassword') currentPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    return this.usersService.changePassword(userId, currentPassword, newPassword);
   }
 }

@@ -43,6 +43,8 @@ export class AuthService {
     email: string,
     password: string,
   ) {
+    console.log("email from login", email)
+    console.log("email from password", password)
     const user =
       await this.usersService.findByEmail(email);
 

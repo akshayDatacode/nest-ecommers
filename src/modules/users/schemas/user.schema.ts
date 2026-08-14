@@ -48,6 +48,18 @@ export class User {
     default: null,
   })
   emailVerificationTokenExpires: Date | null;
+
+  @Prop({
+    type: String,
+    default: null,
+  })
+  resetPasswordToken: string | null;
+  
+  @Prop({
+    type: Date,
+    default: null,
+  })
+  resetPasswordTokenExpires: Date | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { MailerService } from '@nestjs-modules/mailer';
 
 import {
@@ -30,9 +31,10 @@ export class UsersService {
   ) { }
 
   async findByEmail(email: string) {
+    console.log("email from user service", email)
     return this.userModel
       .findOne({
-        email: email.toLowerCase(),
+        email: email?.toLowerCase(),
       })
       .exec();
   }
@@ -57,10 +59,11 @@ export class UsersService {
       );
     }
 
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await this.userModel.create({
       name,
       email: email?.toLowerCase(),
-      password,
+      password: hashedPassword,
     });
 
     return user;
@@ -126,5 +129,104 @@ export class UsersService {
     await user.save();
 
     return { message: 'Email verified successfully' };
+  }
+
+  async forgotPassword(email: string) {
+    const user = await this.findByEmail(email);
+
+    if (!user) {
+      throw new NotFoundException('User not found..');
+    }
+
+    const token = crypto.randomBytes(32).toString('hex'); // Generate a secure token
+    const expires = new Date();
+    expires.setHours(expires.getHours() + 1); // Token expires in 1 hour
+
+    // Hash the token before storing it in the database
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    await this.userModel.findByIdAndUpdate(user._id, {
+      resetPasswordToken: hashedToken,
+      resetPasswordTokenExpires: expires,
+    });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+
+    // Send the reset password email
+    await this.mailerService.sendMail({
+      to: email,
+      subject: 'Reset Your Password',
+      // template: './reset-password',
+      // context: {
+      //   name: user.name,
+      //   resetUrl,
+      // },
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Reset Your Password</title>
+        </head>
+        <body>
+          <h1>Hello ${user.name},</h1>
+          <p>You requested to reset your password. Click the link below to reset it:</p>
+          <a href="${resetUrl}" target="_blank">Reset Password</a>
+          <p>If you did not request this, please ignore this email.</p>
+          <p>Thank you,<br>The Team</p>
+        </body>
+        </html>
+      `,
+    });
+
+    return { message: 'Password reset email sent' };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    // Hash the token to compare with the stored hashed token
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await this.userModel.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordTokenExpires: { $gt: new Date() }, // Ensure token is not expired
+    });
+
+    if (!user) {
+      throw new NotFoundException('Invalid or expired token');
+    }
+
+    // Hash the new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update the user's password
+    user.password = hashedNewPassword; // Ensure password is hashed before saving
+    user.resetPasswordToken = null;
+    user.resetPasswordTokenExpires = null;
+
+    await user.save();
+
+    return { message: 'Password reset successfully' };
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.userModel.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Verify the current password
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new ConflictException('Current password is incorrect');
+    }
+
+    // Hash the new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update the user's password
+    user.password = hashedNewPassword;
+    await user.save();
+
+    return { message: 'Password changed successfully' };
   }
 }
