@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { MailerModule } from '@nestjs-modules/mailer';
+import { HandlebarsAdapter } from './common/adapter/handlebars.adapter';
+import { join } from 'path';
+
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
-import { MailerModule } from '@nestjs-modules/mailer';
 
 @Module({
   imports: [
@@ -25,6 +28,13 @@ import { MailerModule } from '@nestjs-modules/mailer';
       },
       defaults: {
         from: process.env.SMTP_FROM,
+      },
+      template: {
+        dir: join(__dirname, '..', 'templates/emails'), // Path to the templates directory
+        adapter: new HandlebarsAdapter(), // Use Handlebars as the template engine
+        options: {
+          strict: true,
+        },
       },
     }),
 

@@ -19,6 +19,7 @@ import {
   User,
   UserDocument,
 } from './schemas/user.schema';
+import { join } from 'path';
 
 @Injectable()
 export class UsersService {
@@ -58,7 +59,7 @@ export class UsersService {
 
     const user = await this.userModel.create({
       name,
-      email: email.toLowerCase(),
+      email: email?.toLowerCase(),
       password,
     });
 
@@ -83,10 +84,24 @@ export class UsersService {
 
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
 
+    console.log('Sending email with context:', {
+      name: email,
+      verificationUrl,
+    });
+
+    console.log('Template path:', join(__dirname, '..', 'templates/emails/verify-email.hbs'));
+
     await this.mailerService.sendMail({
       to: email,
       subject: 'Verify Your Email',
-      template: './verify-email', // Path to email template
+      // template: './verify-email', // Path to email template
+      html: `
+        <h1>Hello ${email},</h1>
+        <p>Thank you for registering with us. Please verify your email by clicking the link below:</p>
+        <a href="${verificationUrl}" target="_blank">Verify Email</a>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>Thank you,<br>The Team</p>
+      `,
       context: {
         name: email,
         verificationUrl,
@@ -99,17 +114,17 @@ export class UsersService {
       emailVerificationToken: token,
       emailVerificationTokenExpires: { $gt: new Date() }, // Ensure token is not expired
     });
-  
+
     if (!user) {
       throw new NotFoundException('Invalid or expired token');
     }
-  
+
     user.emailVerified = true;
     user.emailVerificationToken = null;
     user.emailVerificationTokenExpires = null;
-  
+
     await user.save();
-  
+
     return { message: 'Email verified successfully' };
   }
 }
