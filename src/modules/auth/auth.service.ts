@@ -1,5 +1,6 @@
 import {
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 
@@ -75,18 +76,83 @@ export class AuthService {
     return this.generateAccessToken(user);
   }
 
+  async refreshToken(oldRefreshToken: string) {
+    try {
+
+      // Validate the old refresh token
+      const payload = this.jwtService.verify(oldRefreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+
+      const user = await this.usersService.findById(payload.sub);
+
+      if (!user || user.refreshToken !== oldRefreshToken) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Generate new tokens
+      const newAccessToken = this.jwtService.sign(
+        { sub: user._id.toString(), email: user.email },
+        { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' },
+      );
+
+      const newRefreshToken = this.jwtService.sign(
+        { sub: user._id.toString() },
+        { secret: process.env.JWT_REFRESH_SECRET, expiresIn: '7d' },
+      );
+
+      // Update the refresh token in the database
+      await this.usersService.updateRefreshToken(user._id, newRefreshToken);
+
+      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  async logout(userId: string) {
+    const user = await this.usersService.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Revoke the refresh token
+    let refreshToken = "";
+    // Update the refresh token in the database
+    await this.usersService.updateRefreshToken(user._id, refreshToken);
+
+    return { message: 'Logged out successfully' };
+  }
+
   private async generateAccessToken(user: any) {
     const payload = {
       sub: user._id.toString(),
       email: user.email,
     };
 
-    const accessToken =
-      await this.jwtService.signAsync(payload);
+    // Generate access token
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_ACCESS_SECRET,
+      expiresIn: '15m', // Access token expires in 15 minutes
+    });
+
+    // Generate refresh token
+    const refreshToken = await this.jwtService.signAsync(
+      payload,
+      {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: '7d', // Refresh token expires in 7 days
+      },
+    );
+
+    // Save the refresh token in the database
+    // Update the refresh token in the database
+    await this.usersService.updateRefreshToken(user._id, refreshToken);
 
     return {
       accessToken,
-
+      refreshToken,
       user: {
         id: user._id,
         name: user.name,

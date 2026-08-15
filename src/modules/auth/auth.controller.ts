@@ -41,6 +41,17 @@ export class AuthController {
     );
   }
 
+  @Post('refresh')
+  async refresh(@Body('refreshToken') refreshToken: string) {
+    return this.authService.refreshToken(refreshToken);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  async logout(@CurrentUser('sub') userId: string) {
+    return this.authService.logout(userId);
+  }
+
   @Post('send-verification-email')
   async sendVerificationEmail(@Body('email') email: string) {
     const user = await this.usersService.findByEmail(email);

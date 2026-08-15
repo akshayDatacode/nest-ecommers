@@ -42,7 +42,7 @@ export class UsersService {
   async findById(id: string) {
     return this.userModel
       .findById(id)
-      .select('-password')
+      .select('-password') // Excludes the password field
       .exec();
   }
 
@@ -67,6 +67,12 @@ export class UsersService {
     });
 
     return user;
+  }
+
+  async updateRefreshToken(userId: any, refreshToken: string) {
+    await this.userModel.findByIdAndUpdate(userId, {
+      refreshToken,
+    });
   }
 
   async generateEmailVerificationToken(userId: string) {

@@ -38,6 +38,12 @@ export class User {
   isActive: boolean;
 
   @Prop({
+    type: String,
+    default: null,
+  })
+  refreshToken: string | null;
+
+  @Prop({
     type: String, // Explicitly specify the type
     default: null,
   })
