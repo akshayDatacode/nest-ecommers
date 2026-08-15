@@ -51,7 +51,7 @@ export class JwtAuthGuard
 
       if (!payload.sub) {
         throw new UnauthorizedException(
-          'Invalid token payload',
+          'Invalid authorization token payload',
         );
       }
 
@@ -66,7 +66,7 @@ export class JwtAuthGuard
       }
 
       throw new UnauthorizedException(
-        'Invalid or expired token',
+        'Invalid or expired authorization token',
       );
     }
   }
