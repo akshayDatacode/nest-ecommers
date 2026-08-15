@@ -10,6 +10,13 @@ import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
+import { CartModule } from './modules/cart/cart.module';
+import { ProductModule } from './modules/product/product.module';
+import { OrderController } from './modules/order/order.controller';
+import { OrderModule } from './modules/order/order.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -53,6 +60,13 @@ import { AddressesModule } from './modules/addresses/addresses.module';
     AuthModule,
     UsersModule,
     AddressesModule,
+    CartModule,
+    ProductModule,
+    OrderModule,
+    PaymentModule,
+    NotificationModule,
+    AdminModule,
   ],
+  controllers: [OrderController],
 })
 export class AppModule { }
