@@ -207,6 +207,7 @@ export class UsersService {
     user.password = hashedNewPassword; // Ensure password is hashed before saving
     user.resetPasswordToken = null;
     user.resetPasswordTokenExpires = null;
+    user.refreshToken = null; // Invalidate the refresh token
 
     await user.save();
 
