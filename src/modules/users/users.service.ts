@@ -46,10 +46,15 @@ export class UsersService {
       .exec();
   }
 
+  async findAll() {
+    return this.userModel.find().select('-password').exec(); // Exclude passwords from the result
+  }
+
   async createUser(
     name: string,
     email: string,
     password: string,
+    role: 'admin' | 'manager' | 'user' = 'user'
   ) {
     const existingUser = await this.findByEmail(email);
 
@@ -64,6 +69,7 @@ export class UsersService {
       name,
       email: email?.toLowerCase(),
       password: hashedPassword,
+      role,
     });
 
     return user;

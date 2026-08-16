@@ -30,6 +30,7 @@ export class AuthController {
       dto.name,
       dto.email,
       dto.password,
+      dto.role,
     );
   }
 

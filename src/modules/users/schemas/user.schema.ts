@@ -21,6 +21,9 @@ export class User {
   })
   password: string;
 
+  @Prop({ default: 'user' }) // Default role is 'user'
+  role: 'admin' | 'manager' | 'user';
+
   @Prop({
     required: true,
     trim: true,
@@ -60,7 +63,7 @@ export class User {
     default: null,
   })
   resetPasswordToken: string | null;
-  
+
   @Prop({
     type: Date,
     default: null,

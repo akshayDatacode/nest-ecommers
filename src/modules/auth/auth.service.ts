@@ -24,6 +24,7 @@ export class AuthService {
     name: string,
     email: string,
     password: string,
+    role: 'admin' | 'manager' | 'user'
   ) {
     const hashedPassword = await bcrypt.hash(
       password,
@@ -35,6 +36,7 @@ export class AuthService {
         name,
         email,
         hashedPassword,
+        role,
       );
 
     return this.generateAccessToken(user);
@@ -92,7 +94,7 @@ export class AuthService {
 
       // Generate new tokens
       const newAccessToken = this.jwtService.sign(
-        { sub: user._id.toString(), email: user.email },
+        { sub: user._id.toString(), email: user.email, role: user.role },
         { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' },
       );
 
@@ -129,6 +131,7 @@ export class AuthService {
     const payload = {
       sub: user._id.toString(),
       email: user.email,
+      role: user.role, // Include the role in the payload
     };
 
     // Generate access token
@@ -157,6 +160,7 @@ export class AuthService {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
         emailVerified: user.emailVerified,
       },
     };
