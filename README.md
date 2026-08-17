@@ -25,6 +25,30 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Checkout and fulfillment flow
+
+1. Add products with `POST /api/cart/items`, then view the cart with `GET /api/cart`.
+2. Create a delivery address through `POST /api/addresses`.
+3. Create the inventory-reserving order with `POST /api/orders` and `{ "addressId": "..." }`. Send a unique `Idempotency-Key` header so client retries cannot create a second order.
+4. Start checkout using `POST /api/payment/razorpay/orders` and `{ "orderId": "..." }`. Pass its `key`, `razorpayOrderId`, `amount`, and `currency` to Razorpay Checkout.
+5. Razorpay calls `POST /api/payment/razorpay/webhook`. Only a verified `payment.captured` webhook changes the order to `CONFIRMED`; the browser redirect is never trusted as payment confirmation.
+6. Admins advance a confirmed order with `PATCH /api/orders/:id/status`: `PACKED` → `SHIPPED` → `DELIVERED`.
+
+`payment.failed` cancels the pending order and returns its reserved stock. Webhook event IDs and payment/order transitions are idempotent, so Razorpay retries are safe.
+
+## Required environment
+
+```env
+MONGO_URI=mongodb://.../ecommerce?replicaSet=rs0
+RAZORPAY_KEY_ID=rzp_live_...
+RAZORPAY_KEY_SECRET=...
+RAZORPAY_WEBHOOK_SECRET=...
+JWT_ACCESS_SECRET=...
+JWT_REFRESH_SECRET=...
+```
+
+MongoDB transactions protect stock reservation, order creation, and webhook state changes; therefore production MongoDB must run as a replica set (Atlas satisfies this). Configure Razorpay to send `payment.captured` and `payment.failed` to `/api/payment/razorpay/webhook` and set the webhook secret above.
+
 ## Project setup
 
 ```bash
@@ -89,9 +113,16 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 
 ## Stay in touch
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- Author - [Akshay Mandliya](https://twitter.com/kammysliwiec)
 - Website - [https://nestjs.com](https://nestjs.com/)
 - Twitter - [@nestframework](https://twitter.com/nestframework)
+
+## Architechture
+- RBAC
+- JWT / Refresh Token
+- Verify Email
+- Auth Setup
+- Admin Access
 
 ## License
 
