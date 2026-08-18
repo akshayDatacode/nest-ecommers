@@ -26,18 +26,22 @@ export class OrderService {
       await session.withTransaction(async () => { order = await this.createInTransaction(userId, addressId, idempotencyKey, session); });
       return order!;
     } catch (error: any) {
-      if (error?.code === 11000 && idempotencyKey) return this.orderModel.findOne({ userId, idempotencyKey }).exec();
+      console.error('Order creation failed:', error);
+      if (error?.code === 11000 && idempotencyKey) {
+        return this.orderModel.findOne({ userId, idempotencyKey }).exec();
+      }
       throw error;
     } finally { await session.endSession(); }
   }
 
   private async createInTransaction(userId: string, addressId: string, idempotencyKey: string | undefined, session: ClientSession) {
-    const [cart, address] = await Promise.all([
-      this.cartModel.findOne({ userId })
-        .session(session).lean().exec(),
-      this.addressModel.findOne({ _id: addressId, userId })
-        .session(session).lean().exec(),
-    ]);
+    // Do not run session-bound operations in parallel. A MongoDB transaction
+    // has one active operation per session; concurrent commands can make the
+    // server treat a second command as another transaction start.
+    const cart = await this.cartModel.findOne({ userId })
+      .session(session).lean().exec();
+    const address = await this.addressModel.findOne({ _id: addressId, userId })
+      .session(session).lean().exec();
 
     if (!address) throw new NotFoundException('Address not found');
     if (!cart?.items.length) throw new BadRequestException('Cart is empty');
