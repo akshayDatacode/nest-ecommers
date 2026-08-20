@@ -7,6 +7,7 @@ import { Cart, CartSchema } from '../cart/schemas/cart.schema';
 import { Address, AddressSchema } from '../addresses/schemas/address.schema';
 import { AuthModule } from '../auth/auth.module';
 import { ProductModule } from '../product/product.module';
+import { ShippingModule } from '../shipping/shipping.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ProductModule } from '../product/product.module';
       { name: Address.name, schema: AddressSchema }]),
     AuthModule,
     ProductModule,
+    ShippingModule,
   ],
   providers: [OrderService],
   controllers: [OrderController],

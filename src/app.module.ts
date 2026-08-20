@@ -16,6 +16,7 @@ import { OrderModule } from './modules/order/order.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ShippingModule } from './modules/shipping/shipping.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { AdminModule } from './modules/admin/admin.module';
     OrderModule,
     PaymentModule,
     NotificationModule,
+    ShippingModule,
     AdminModule,
   ],
 })

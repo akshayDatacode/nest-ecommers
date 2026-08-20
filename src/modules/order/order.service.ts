@@ -5,6 +5,8 @@ import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
 import { Cart, CartDocument } from '../cart/schemas/cart.schema';
 import { Address, AddressDocument } from '../addresses/schemas/address.schema';
 import { ProductService } from '../product/product.service';
+import { ShippingService } from '../shipping/shipping.service';
+import { UpdateShippingDto } from './dto/order.dto';
 
 const PAYMENT_HOLD_MS = 60 * 60 * 1000;
 
@@ -17,6 +19,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
     @InjectModel(Address.name) private readonly addressModel: Model<AddressDocument>,
     private readonly productService: ProductService,
+    private readonly shippingService: ShippingService,
   ) { }
 
   onModuleInit() {
@@ -39,7 +42,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async createFromCart(userId: string, addressId: string, idempotencyKey?: string) {
+  async createFromCart(userId: string, addressId: string, idempotencyKey?: string, shippingPartnerCode?: string) {
     if (idempotencyKey) {
       const existing = await this.orderModel.findOne({ userId, idempotencyKey }).exec();
       if (existing) return existing;
@@ -47,7 +50,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     const session = await this.orderModel.db.startSession();
     try {
       let order: OrderDocument | undefined;
-      await session.withTransaction(async () => { order = await this.createInTransaction(userId, addressId, idempotencyKey, session); });
+      await session.withTransaction(async () => { order = await this.createInTransaction(userId, addressId, shippingPartnerCode, idempotencyKey, session); });
       return order!;
     } catch (error: any) {
       console.error('Order creation failed:', error);
@@ -58,7 +61,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     } finally { await session.endSession(); }
   }
 
-  private async createInTransaction(userId: string, addressId: string, idempotencyKey: string | undefined, session: ClientSession) {
+  private async createInTransaction(userId: string, addressId: string, shippingPartnerCode: string | undefined, idempotencyKey: string | undefined, session: ClientSession) {
     // Do not run session-bound operations in parallel. A MongoDB transaction
     // has one active operation per session; concurrent commands can make the
     // server treat a second command as another transaction start.
@@ -88,6 +91,8 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     }
 
     const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
+    const quantity = items.reduce((total, item) => total + item.quantity, 0);
+    const shipping = await this.shippingService.quote(subtotal, quantity, shippingPartnerCode, session);
 
     return this.orderModel.create([{
       orderNumber: `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
@@ -104,7 +109,12 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
         country: address.country
       },
       subtotal,
-      totalAmount: subtotal,
+      shippingFee: shipping.amount,
+      shippingPartnerCode: shipping.code,
+      shippingPartnerName: shipping.name,
+      courierPartner: shipping.name,
+      currency: shipping.currency,
+      totalAmount: subtotal + shipping.amount,
       idempotencyKey,
       expiresAt: new Date(Date.now() + PAYMENT_HOLD_MS),
     }], { session }).then(([created]) => created);
@@ -129,7 +139,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
 
   async updateFulfillmentStatus(orderId: string, target: OrderStatus) {
     const order = await this.findById(orderId);
-    const allowed: Record<string, OrderStatus[]> = { CONFIRMED: ['PACKED'], PACKED: ['SHIPPED'], SHIPPED: ['DELIVERED'] };
+    const allowed: Record<string, OrderStatus[]> = { CONFIRMED: ['PACKED'], PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
 
     if (!allowed[order.status]?.includes(target)) throw new BadRequestException(`Cannot move order from ${order.status} to ${target}`);
 
@@ -139,6 +149,38 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     if (target === 'SHIPPED') order.shippedAt = new Date();
     if (target === 'DELIVERED') order.deliveredAt = new Date();
 
+    return order.save();
+  }
+
+  async trackingForUser(userId: string, orderId: string) {
+    const order = await this.findOwned(userId, orderId);
+    const trackingUrl = order.trackingUrl ?? await this.shippingService.trackingUrl(order.shippingPartnerCode, order.trackingNumber);
+    return {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      courierPartner: order.courierPartner,
+      trackingNumber: order.trackingNumber,
+      trackingUrl,
+      events: order.trackingEvents,
+    };
+  }
+
+  async updateShipping(orderId: string, dto: UpdateShippingDto) {
+    const order = await this.findById(orderId);
+    if (order.paymentStatus !== 'PAID') throw new BadRequestException('Shipment cannot be updated before payment is captured');
+    if (dto.status) {
+      const allowed: Record<string, OrderStatus[]> = { PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
+      if (!allowed[order.status]?.includes(dto.status)) throw new BadRequestException(`Cannot move order from ${order.status} to ${dto.status}`);
+      order.status = dto.status;
+      if (dto.status === 'SHIPPED') order.shippedAt = new Date();
+      if (dto.status === 'DELIVERED') order.deliveredAt = new Date();
+    }
+    if (dto.trackingNumber) order.trackingNumber = dto.trackingNumber;
+    if (dto.courierPartner) order.courierPartner = dto.courierPartner;
+    if (dto.status || dto.message || dto.location) {
+      order.trackingEvents.push({ status: dto.status ?? order.status, message: dto.message, location: dto.location, occurredAt: new Date() });
+    }
+    order.trackingUrl = await this.shippingService.trackingUrl(order.shippingPartnerCode, order.trackingNumber);
     return order.save();
   }
 

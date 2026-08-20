@@ -49,8 +49,17 @@ export class ShippingAddress {
   country: string;
 }
 
+@Schema({ _id: false })
+export class TrackingEvent {
+  @Prop({ required: true }) status: string;
+  @Prop() message?: string;
+  @Prop() location?: string;
+  @Prop({ required: true }) occurredAt: Date;
+}
+
 const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
 const ShippingAddressSchema = SchemaFactory.createForClass(ShippingAddress);
+const TrackingEventSchema = SchemaFactory.createForClass(TrackingEvent);
 
 @Schema({ timestamps: true })
 export class Order {
@@ -89,6 +98,10 @@ export class Order {
   @Prop() razorpaySignature?: string;
   @Prop() trackingNumber?: string;
   @Prop() courierPartner?: string;
+  @Prop() shippingPartnerCode?: string;
+  @Prop() shippingPartnerName?: string;
+  @Prop() trackingUrl?: string;
+  @Prop({ type: [TrackingEventSchema], default: [] }) trackingEvents: TrackingEvent[];
 
   @Prop({ type: String, enum: ['PENDING', 'PAID', 'FAILED', 'REFUNDED'], default: 'PENDING' })
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
