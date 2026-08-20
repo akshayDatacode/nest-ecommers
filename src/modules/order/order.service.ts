@@ -1,19 +1,43 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
 import { Cart, CartDocument } from '../cart/schemas/cart.schema';
-import { Product, ProductDocument } from '../product/schemas/product.schema';
 import { Address, AddressDocument } from '../addresses/schemas/address.schema';
+import { ProductService } from '../product/product.service';
+
+const PAYMENT_HOLD_MS = 60 * 60 * 1000;
 
 @Injectable()
-export class OrderService {
+export class OrderService implements OnModuleInit, OnModuleDestroy {
+  private expiryTimer?: NodeJS.Timeout;
+  private readonly logger = new Logger(OrderService.name);
   constructor(
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
-    @InjectModel(Product.name) private readonly productModel: Model<ProductDocument>,
     @InjectModel(Address.name) private readonly addressModel: Model<AddressDocument>,
+    private readonly productService: ProductService,
   ) { }
+
+  onModuleInit() {
+    // Each worker may run this; the conditional state transition makes it safe
+    // across replicas and guarantees stock is restored at most once.
+    void this.runExpirySweep();
+    this.expiryTimer = setInterval(() => void this.runExpirySweep(), 60_000);
+    this.expiryTimer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
+  }
+
+  private async runExpirySweep() {
+    try {
+      await this.expirePendingOrders();
+    } catch (error) {
+      this.logger.error('Pending-order expiry sweep failed', error);
+    }
+  }
 
   async createFromCart(userId: string, addressId: string, idempotencyKey?: string) {
     if (idempotencyKey) {
@@ -50,10 +74,7 @@ export class OrderService {
 
     for (const cartItem of cart.items) {
       // Atomic conditional decrement prevents overselling under concurrent checkouts.
-      const product = await this.productModel.findOneAndUpdate(
-        { _id: cartItem.productId, stock: { $gte: cartItem.quantity } },
-        { $inc: { stock: -cartItem.quantity } }, { new: false, session },
-      ).lean().exec();
+      const product = await this.productService.reserveStock(cartItem.productId, cartItem.quantity, session);
 
       if (!product) throw new ConflictException('One or more items are out of stock');
 
@@ -85,6 +106,7 @@ export class OrderService {
       subtotal,
       totalAmount: subtotal,
       idempotencyKey,
+      expiresAt: new Date(Date.now() + PAYMENT_HOLD_MS),
     }], { session }).then(([created]) => created);
   }
 
@@ -120,23 +142,72 @@ export class OrderService {
     return order.save();
   }
 
-  async confirmPaid(orderId: string, session?: ClientSession) {
-    return this.orderModel.findOneAndUpdate(
-      { _id: orderId, status: 'PENDING', paymentStatus: 'PENDING' },
-      { status: 'CONFIRMED', paymentStatus: 'PAID' },
+  async markPaid(orderId: string, session?: ClientSession) {
+    const order = await this.orderModel.findOneAndUpdate(
+      {
+        _id: orderId,
+        status: 'PENDING',
+        paymentStatus: 'PENDING',
+        $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: { $exists: false } }],
+      },
+      { $set: { status: 'CONFIRMED', paymentStatus: 'PAID' }, $unset: { expiresAt: 1 } },
       { new: true, session }).exec();
+    if (order) {
+      for (const item of order.items) await this.productService.confirmReservedStock(item.productId, item.quantity, session);
+    }
+    return order;
   }
 
-  async cancelFailedPayment(order: OrderDocument, session: ClientSession) {
+  async markPaymentFailed(order: OrderDocument, session: ClientSession) {
     const changed = await this.orderModel.updateOne(
       { _id: order._id, status: 'PENDING', paymentStatus: 'PENDING' },
-      { status: 'CANCELLED', paymentStatus: 'FAILED' },
+      { $set: { status: 'CANCELLED', paymentStatus: 'FAILED' }, $unset: { expiresAt: 1 } },
       { session }).exec();
 
     if (changed.modifiedCount) {
-      for (const item of order.items) {
-        await this.productModel.updateOne({ _id: item.productId }, { $inc: { stock: item.quantity } }, { session }).exec();
-      }
+      await this.releaseStock(order, session);
     }
+  }
+
+  async releaseStock(order: Pick<OrderDocument, '_id' | 'items'>, session: ClientSession) {
+    for (const item of order.items) await this.productService.releaseReservedStock(item.productId, item.quantity, session);
+  }
+
+  async retryPayment(userId: string, orderId: string) {
+    const session = await this.orderModel.db.startSession();
+    try {
+      let order: OrderDocument | null = null;
+      await session.withTransaction(async () => {
+        const failedOrder = await this.orderModel.findOne({ _id: orderId, userId, status: 'CANCELLED', paymentStatus: 'FAILED' }).session(session).exec();
+        if (!failedOrder) throw new BadRequestException('Only failed or expired orders can be retried');
+        for (const item of failedOrder.items) {
+          const product = await this.productService.reserveStock(item.productId, item.quantity, session);
+          if (!product) throw new ConflictException('One or more items are no longer in stock');
+        }
+        order = await this.orderModel.findByIdAndUpdate(
+          failedOrder._id,
+          { $set: { status: 'PENDING', paymentStatus: 'PENDING', expiresAt: new Date(Date.now() + PAYMENT_HOLD_MS) } },
+          { new: true, session },
+        ).exec();
+      });
+      return order!;
+    } finally { await session.endSession(); }
+  }
+
+  async expirePendingOrders(now = new Date()) {
+    const expired = await this.orderModel.find({ status: 'PENDING', paymentStatus: 'PENDING', expiresAt: { $lte: now } }).select('_id').lean().exec();
+    let released = 0;
+    for (const candidate of expired) {
+      const session = await this.orderModel.db.startSession();
+      try {
+        await session.withTransaction(async () => {
+          const order = await this.orderModel.findOne({ _id: candidate._id, status: 'PENDING', paymentStatus: 'PENDING', expiresAt: { $lte: now } }).session(session).exec();
+          if (!order) return;
+          await this.markPaymentFailed(order, session);
+          released++;
+        });
+      } finally { await session.endSession(); }
+    }
+    return { expired: released };
   }
 }

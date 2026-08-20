@@ -6,7 +6,7 @@ export type WebhookEventDocument = HydratedDocument<WebhookEvent>;
 
 @Schema({ timestamps: true })
 export class Payment {
-  @Prop({ type: Types.ObjectId, ref: 'Order', required: true, unique: true, index: true }) orderId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Order', required: true, index: true }) orderId: Types.ObjectId;
   @Prop({ required: true, unique: true, index: true }) razorpayOrderId: string;
   @Prop({ unique: true, sparse: true }) razorpayPaymentId?: string;
   @Prop({ required: true }) amount: number; // smallest currency unit (paise)
@@ -23,3 +23,4 @@ export class WebhookEvent {
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);
 export const WebhookEventSchema = SchemaFactory.createForClass(WebhookEvent);
+PaymentSchema.index({ orderId: 1, createdAt: -1 });

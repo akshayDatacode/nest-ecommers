@@ -11,6 +11,7 @@ import { AuthModule } from '../auth/auth.module';
     AuthModule, // Import AuthModule to use JwtService and JwtAuthGuard
   ],
   providers: [ProductService],
-  controllers: [ProductController]
+  controllers: [ProductController],
+  exports: [ProductService],
 })
 export class ProductModule { }

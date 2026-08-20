@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
 
 @Injectable()
@@ -8,6 +8,35 @@ export class ProductService {
   constructor(
     @InjectModel(Product.name) private readonly productModel: Model<ProductDocument>,
   ) { }
+
+  /**
+   * A reservation is represented by removing units from sellable stock.  This
+   * conditional update is deliberately atomic so two checkouts cannot reserve
+   * the same last unit.
+   */
+  async reserveStock(productId: string | Types.ObjectId, quantity: number, session?: ClientSession) {
+    return this.productModel.findOneAndUpdate(
+      { _id: productId, stock: { $gte: quantity } },
+      { $inc: { stock: -quantity } },
+      { new: false, session },
+    ).exec();
+  }
+
+  /** Reserved units are already removed from sellable stock, so confirmation is explicit but idempotent. */
+  confirmReservedStock(productId: string | Types.ObjectId, quantity: number, session?: ClientSession) {
+    void productId;
+    void quantity;
+    void session;
+    return Promise.resolve();
+  }
+
+  async releaseReservedStock(productId: string | Types.ObjectId, quantity: number, session?: ClientSession) {
+    await this.productModel.updateOne(
+      { _id: productId },
+      { $inc: { stock: quantity } },
+      { session },
+    ).exec();
+  }
 
   async getAllProducts() {
     return this.productModel.find().exec();

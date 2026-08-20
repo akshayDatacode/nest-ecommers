@@ -2,12 +2,14 @@ import { BadGatewayException, BadRequestException, ForbiddenException, Injectabl
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { Model } from 'mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { Payment, PaymentDocument, WebhookEvent, WebhookEventDocument } from './schemas/payment.schema';
 import { Order, OrderDocument } from '../order/schemas/order.schema';
 import { Cart, CartDocument } from '../cart/schemas/cart.schema';
-import { Product, ProductDocument } from '../product/schemas/product.schema';
 import { Logger } from '@nestjs/common';
+import { OrderService } from '../order/order.service';
+import { NotificationService } from '../notification/notification.service';
+import { User, UserDocument } from '../users/schemas/user.schema';
 
 @Injectable()
 export class PaymentService {
@@ -19,7 +21,9 @@ export class PaymentService {
     @InjectModel(WebhookEvent.name) private readonly eventModel: Model<WebhookEventDocument>,
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
-    @InjectModel(Product.name) private readonly productModel: Model<ProductDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    private readonly orderService: OrderService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   async createRazorpayOrder(userId: string, orderId: string) {
@@ -36,7 +40,7 @@ export class PaymentService {
       throw new BadRequestException('Order is not awaiting payment');
     }
 
-    const existing = await this.paymentModel.findOne({ orderId }).lean().exec();
+    const existing = await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } }).sort({ createdAt: -1 }).lean().exec();
     if (existing) {
       this.logger.log(`Existing Razorpay order found for orderId: ${orderId}`);
       return this.checkoutResponse(existing);
@@ -87,11 +91,25 @@ export class PaymentService {
     } catch (error: any) {
       if (error?.code === 11000) {
         this.logger.warn(`Duplicate payment record found for orderId: ${orderId}`);
-        return this.checkoutResponse(await this.paymentModel.findOne({ orderId }).exec());
+        return this.checkoutResponse(await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } }).sort({ createdAt: -1 }).exec());
       }
       this.logger.error('Error creating payment record', error.stack);
       throw error;
     }
+  }
+
+  async retryPayment(userId: string, orderId: string) {
+    await this.orderService.retryPayment(userId, orderId);
+    return this.createRazorpayOrder(userId, orderId);
+  }
+
+  private async isCurrentPaymentAttempt(orderId: OrderDocument['_id'], paymentId: PaymentDocument['_id'], session: ClientSession) {
+    const current = await this.paymentModel.findOne(
+      { orderId },
+      { _id: 1 },
+      { session, sort: { createdAt: -1 } },
+    ).exec();
+    return current?._id.equals(paymentId) ?? false;
   }
 
   private checkoutResponse(payment: PaymentDocument | any) {
@@ -123,6 +141,7 @@ export class PaymentService {
     const session = await this.paymentModel.db.startSession();
     try {
       let duplicate = false;
+      const confirmation = { order: null as OrderDocument | null };
       await session.withTransaction(async () => {
         try {
           await this.eventModel.create([{ eventId, event: payload.event }], { session });
@@ -157,12 +176,9 @@ export class PaymentService {
             { status: 'CAPTURED', razorpayPaymentId: entity.id },
             { session },
           ).exec();
-          const confirmed = await this.orderModel.updateOne(
-            { _id: order._id, status: 'PENDING', paymentStatus: 'PENDING' },
-            { status: 'CONFIRMED', paymentStatus: 'PAID' },
-            { session },
-          ).exec();
-          if (confirmed.modifiedCount) {
+          if (!(await this.isCurrentPaymentAttempt(order._id, payment._id, session))) return;
+          confirmation.order = await this.orderService.markPaid(order.id, session);
+          if (confirmation.order) {
             await this.cartModel.updateOne(
               { userId: order.userId },
               { $set: { items: [] } },
@@ -171,27 +187,22 @@ export class PaymentService {
           }
         } else if (payload.event === 'payment.failed') {
           this.logger.log(`Payment failed for Razorpay paymentId: ${entity.id}`);
-          await this.paymentModel.updateOne(
-            { _id: payment._id },
+          const failedPayment = await this.paymentModel.updateOne(
+            { _id: payment._id, status: { $ne: 'FAILED' } },
             { status: 'FAILED', razorpayPaymentId: entity.id, failure: entity.error ?? {} },
             { session },
           ).exec();
-          const cancelled = await this.orderModel.updateOne(
-            { _id: order._id, status: 'PENDING', paymentStatus: 'PENDING' },
-            { status: 'CANCELLED', paymentStatus: 'FAILED' },
-            { session },
-          ).exec();
-          if (cancelled.modifiedCount) {
-            for (const item of order.items) {
-              await this.productModel.updateOne(
-                { _id: item.productId },
-                { $inc: { stock: item.quantity } },
-                { session },
-              ).exec();
-            }
+          // Do not let a duplicate/late failure for an earlier attempt cancel a
+          // newer retry that is already awaiting payment.
+          if (failedPayment.modifiedCount && await this.isCurrentPaymentAttempt(order._id, payment._id, session)) {
+            await this.orderService.markPaymentFailed(order, session);
           }
         }
       });
+      if (confirmation.order) {
+        const user = await this.userModel.findById(confirmation.order.userId).select('email').lean().exec();
+        if (user) await this.notificationService.sendOrderConfirmation(confirmation.order, user.email);
+      }
       return { received: true, duplicate };
     } finally {
       await session.endSession();

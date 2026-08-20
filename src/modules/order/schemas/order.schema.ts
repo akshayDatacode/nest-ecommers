@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
-export const ORDER_STATUSES = ['PENDING', 'CONFIRMED', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
+export const ORDER_STATUSES = ['PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'PAYMENT_FAILED', 'CANCELLED', 'REFUNDED',] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export type OrderDocument = HydratedDocument<Order>;
 
@@ -84,6 +84,12 @@ export class Order {
   @Prop({ type: String, enum: ORDER_STATUSES, default: 'PENDING', index: true })
   status: OrderStatus;
 
+  @Prop() razorpayOrderId?: string;
+  @Prop() razorpayPaymentId?: string;
+  @Prop() razorpaySignature?: string;
+  @Prop() trackingNumber?: string;
+  @Prop() courierPartner?: string;
+
   @Prop({ type: String, enum: ['PENDING', 'PAID', 'FAILED', 'REFUNDED'], default: 'PENDING' })
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 
@@ -95,6 +101,8 @@ export class Order {
   @Prop() shippedAt?: Date;
 
   @Prop() deliveredAt?: Date;
+
+  @Prop() expiresAt?: Date; // for PENDING_PAYMENT TTL cleanup
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
