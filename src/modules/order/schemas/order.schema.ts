@@ -96,6 +96,7 @@ export class Order {
   @Prop() razorpayOrderId?: string;
   @Prop() razorpayPaymentId?: string;
   @Prop() razorpaySignature?: string;
+  
   @Prop() trackingNumber?: string;
   @Prop() courierPartner?: string;
   @Prop() shippingPartnerCode?: string;

@@ -12,8 +12,37 @@ export class CartService {
   ) { }
 
   async getCart(userId: string) {
+    // Fetch the cart for the user
     const cart = await this.cartModel.findOne({ userId }).lean().exec();
-    return cart ?? { userId, items: [] };
+
+    // If the cart is empty, return an empty cart structure
+    if (!cart) return { userId, items: [] };
+
+    // Fetch product details for all items in the cart
+    const productIds = cart.items.map((item) => item.productId);
+    const products = await this.productModel.find({ _id: { $in: productIds } }).lean().exec();
+
+    // Create a map of productId to product details for quick lookup
+    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
+
+    // Merge product details with cart items
+    const items = cart.items.map((item) => {
+      const product = productMap.get(item.productId.toString());
+
+      // If the product is not found (e.g., deleted), skip the item
+      if (!product) return null;
+
+      return {
+        productId: product._id,
+        name: product.name,
+        price: product.price,
+        stock: product.stock,
+        quantity: item.quantity,
+        lineTotal: product.price * item.quantity, // Calculate line total
+      };
+    }).filter((item) => item !== null); // Remove null items (e.g., deleted products)
+
+    return { userId, items, totalAmount: items.reduce((s, i) => s + i.lineTotal, 0) };
   }
 
   async addItem(userId: string, productId: string, quantity: number) {

@@ -95,7 +95,7 @@ export class AuthService {
       // Generate new tokens
       const newAccessToken = this.jwtService.sign(
         { sub: user._id.toString(), email: user.email, role: user.role },
-        { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' },
+        { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '59m' },
       );
 
       const newRefreshToken = this.jwtService.sign(
@@ -137,7 +137,7 @@ export class AuthService {
     // Generate access token
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_ACCESS_SECRET,
-      expiresIn: '15m', // Access token expires in 15 minutes
+      expiresIn: '59m', // Access token expires in 15 minutes
     });
 
     // Generate refresh token

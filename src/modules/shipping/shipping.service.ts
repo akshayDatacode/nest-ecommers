@@ -20,7 +20,7 @@ export class ShippingService {
       );
     }
 
-    const amount = partner.freeShippingThreshold !== undefined && subtotal <= partner.freeShippingThreshold
+    const amount = partner.freeShippingThreshold !== undefined && Number(subtotal) >= partner.freeShippingThreshold
       ? 0
       : Math.round((partner.baseCharge + partner.perItemCharge * quantity) * 100) / 100;
 
