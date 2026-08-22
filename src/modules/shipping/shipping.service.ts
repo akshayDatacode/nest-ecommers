@@ -6,14 +6,21 @@ import { CreateShippingPartnerDto, UpdateShippingPartnerDto } from './dto/shippi
 
 @Injectable()
 export class ShippingService {
-  constructor(@InjectModel(ShippingPartner.name) private readonly partnerModel: Model<ShippingPartnerDocument>) {}
+  constructor(@InjectModel(ShippingPartner.name) private readonly partnerModel: Model<ShippingPartnerDocument>) { }
 
   async quote(subtotal: number, quantity: number, partnerCode?: string, session?: ClientSession) {
     const filter = partnerCode ? { code: partnerCode.toUpperCase(), active: true } : { active: true };
     const partner = await this.partnerModel.findOne(filter).sort({ baseCharge: 1, perItemCharge: 1 }).session(session ?? null).exec();
-    if (!partner) throw new BadRequestException(partnerCode ? 'Selected shipping partner is unavailable' : 'No active shipping partner is configured');
 
-    const amount = partner.freeShippingThreshold !== undefined && subtotal >= partner.freeShippingThreshold
+    if (!partner) {
+      throw new BadRequestException(
+        partnerCode
+          ? `The selected shipping partner (${partnerCode}) is unavailable. Please choose another partner.`
+          : 'No active shipping partner is configured. Please contact support.'
+      );
+    }
+
+    const amount = partner.freeShippingThreshold !== undefined && subtotal <= partner.freeShippingThreshold
       ? 0
       : Math.round((partner.baseCharge + partner.perItemCharge * quantity) * 100) / 100;
 
@@ -33,7 +40,12 @@ export class ShippingService {
   listPartners() { return this.partnerModel.find().sort({ name: 1 }).exec(); }
 
   async updatePartner(code: string, dto: UpdateShippingPartnerDto) {
-    const partner = await this.partnerModel.findOneAndUpdate({ code: code.toUpperCase() }, dto, { new: true }).exec();
+    const partner = await this.partnerModel.findOneAndUpdate(
+      { code: code.toUpperCase() },
+      dto,
+      { returnDocument: 'after' } // Use returnDocument instead of new
+    ).exec();
+
     if (!partner) throw new NotFoundException('Shipping partner not found');
     return partner;
   }
