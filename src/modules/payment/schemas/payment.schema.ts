@@ -11,7 +11,8 @@ export class Payment {
   @Prop({ unique: true, sparse: true }) razorpayPaymentId?: string;
   @Prop({ required: true }) amount: number; // smallest currency unit (paise)
   @Prop({ required: true, default: 'INR' }) currency: string;
-  @Prop({ enum: ['CREATED', 'AUTHORIZED', 'CAPTURED', 'FAILED'], default: 'CREATED', index: true }) status: string;
+  @Prop({ enum: ['CREATED', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'CREATED', index: true }) status: string;
+  @Prop({ unique: true, sparse: true }) razorpayRefundId?: string;
   @Prop({ type: Object }) failure?: Record<string, unknown>;
 }
 

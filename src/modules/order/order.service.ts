@@ -7,6 +7,7 @@ import { Address, AddressDocument } from '../addresses/schemas/address.schema';
 import { ProductService } from '../product/product.service';
 import { ShippingService } from '../shipping/shipping.service';
 import { UpdateShippingDto } from './dto/order.dto';
+import { NotificationService } from '../notification/notification.service';
 
 const PAYMENT_HOLD_MS = 60 * 60 * 10 // 6 minits;
 
@@ -20,6 +21,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(Address.name) private readonly addressModel: Model<AddressDocument>,
     private readonly productService: ProductService,
     private readonly shippingService: ShippingService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   onModuleInit() {
@@ -139,7 +141,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
 
   async updateFulfillmentStatus(orderId: string, target: OrderStatus) {
     const order = await this.findById(orderId);
-    const allowed: Record<string, OrderStatus[]> = { CONFIRMED: ['PACKED'], PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
+    const allowed: Record<string, OrderStatus[]> = { PAID: ['PROCESSING', 'PACKED'], CONFIRMED: ['PROCESSING', 'PACKED'], PROCESSING: ['PACKED'], PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
 
     if (!allowed[order.status]?.includes(target)) throw new BadRequestException(`Cannot move order from ${order.status} to ${target}`);
 
@@ -149,7 +151,11 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     if (target === 'SHIPPED') order.shippedAt = new Date();
     if (target === 'DELIVERED') order.deliveredAt = new Date();
 
-    return order.save();
+    const saved = await order.save();
+    if (target === 'SHIPPED' || target === 'OUT_FOR_DELIVERY' || target === 'DELIVERED') {
+      await this.notificationService.sendOrderNotification(saved, target);
+    }
+    return saved;
   }
 
   async trackingForUser(userId: string, orderId: string) {
@@ -169,7 +175,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     const order = await this.findById(orderId);
     if (order.paymentStatus !== 'PAID') throw new BadRequestException('Shipment cannot be updated before payment is captured');
     if (dto.status) {
-      const allowed: Record<string, OrderStatus[]> = { PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
+      const allowed: Record<string, OrderStatus[]> = { PAID: ['PROCESSING', 'PACKED'], CONFIRMED: ['PROCESSING', 'PACKED'], PROCESSING: ['PACKED'], PACKED: ['SHIPPED'], SHIPPED: ['OUT_FOR_DELIVERY', 'DELIVERED'], OUT_FOR_DELIVERY: ['DELIVERED'] };
       if (!allowed[order.status]?.includes(dto.status)) throw new BadRequestException(`Cannot move order from ${order.status} to ${dto.status}`);
       order.status = dto.status;
       if (dto.status === 'SHIPPED') order.shippedAt = new Date();
@@ -181,7 +187,9 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
       order.trackingEvents.push({ status: dto.status ?? order.status, message: dto.message, location: dto.location, occurredAt: new Date() });
     }
     order.trackingUrl = await this.shippingService.trackingUrl(order.shippingPartnerCode, order.trackingNumber);
-    return order.save();
+    const saved = await order.save();
+    if (dto.status) await this.notificationService.sendOrderNotification(saved, dto.status as 'SHIPPED' | 'OUT_FOR_DELIVERY' | 'DELIVERED');
+    return saved;
   }
 
   async markPaid(orderId: string, session?: ClientSession) {
@@ -192,7 +200,7 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
         paymentStatus: 'PENDING',
         $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: { $exists: false } }],
       },
-      { $set: { status: 'CONFIRMED', paymentStatus: 'PAID' }, $unset: { expiresAt: 1 } },
+      { $set: { status: 'PAID', paymentStatus: 'PAID' }, $unset: { expiresAt: 1 } },
       { new: true, session }).exec();
     if (order) {
       for (const item of order.items) await this.productService.confirmReservedStock(item.productId, item.quantity, session);
@@ -208,7 +216,9 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
 
     if (changed.modifiedCount) {
       await this.releaseStock(order, session);
+      return true;
     }
+    return false;
   }
 
   async releaseStock(order: Pick<OrderDocument, '_id' | 'items'>, session: ClientSession) {

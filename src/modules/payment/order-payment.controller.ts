@@ -12,4 +12,9 @@ export class OrderPaymentController {
   retryPayment(@CurrentUser('sub') userId: string, @Param('id') orderId: string) {
     return this.paymentService.retryPayment(userId, orderId);
   }
+
+  @Post(':id/cancel')
+  cancel(@CurrentUser('sub') userId: string, @Param('id') orderId: string) {
+    return this.paymentService.cancelOrder(userId, orderId);
+  }
 }

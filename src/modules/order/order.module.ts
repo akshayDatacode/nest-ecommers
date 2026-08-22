@@ -8,6 +8,7 @@ import { Address, AddressSchema } from '../addresses/schemas/address.schema';
 import { AuthModule } from '../auth/auth.module';
 import { ProductModule } from '../product/product.module';
 import { ShippingModule } from '../shipping/shipping.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ShippingModule } from '../shipping/shipping.module';
     AuthModule,
     ProductModule,
     ShippingModule,
+    NotificationModule,
   ],
   providers: [OrderService],
   controllers: [OrderController],

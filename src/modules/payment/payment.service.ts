@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -9,7 +9,7 @@ import { Cart, CartDocument } from '../cart/schemas/cart.schema';
 import { Logger } from '@nestjs/common';
 import { OrderService } from '../order/order.service';
 import { NotificationService } from '../notification/notification.service';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import Razorpay from 'razorpay';
 
 @Injectable()
 export class PaymentService {
@@ -21,7 +21,6 @@ export class PaymentService {
     @InjectModel(WebhookEvent.name) private readonly eventModel: Model<WebhookEventDocument>,
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
-    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly orderService: OrderService,
     private readonly notificationService: NotificationService,
   ) { }
@@ -40,10 +39,14 @@ export class PaymentService {
       throw new BadRequestException('Order is not awaiting payment');
     }
 
-    const existing = await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } }).sort({ createdAt: -1 }).lean().exec();
+    const existing = await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
     if (existing) {
       this.logger.log(`Existing Razorpay order found for orderId: ${orderId}`);
-      return this.checkoutResponse(existing);
+      return this.checkoutResponse(existing); // existing is null or undefined here
     }
 
     const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
@@ -91,7 +94,16 @@ export class PaymentService {
     } catch (error: any) {
       if (error?.code === 11000) {
         this.logger.warn(`Duplicate payment record found for orderId: ${orderId}`);
-        return this.checkoutResponse(await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } }).sort({ createdAt: -1 }).exec());
+        const duplicatePayment = await this.paymentModel.findOne({ orderId, status: { $in: ['CREATED', 'AUTHORIZED'] } })
+          .sort({ createdAt: -1 })
+          .exec();
+
+        if (!duplicatePayment) {
+          this.logger.error(`No duplicate payment record found for orderId: ${orderId}`);
+          throw new BadGatewayException('Unable to retrieve duplicate payment record');
+        }
+
+        return this.checkoutResponse(duplicatePayment);
       }
       this.logger.error('Error creating payment record', error.stack);
       throw error;
@@ -101,6 +113,77 @@ export class PaymentService {
   async retryPayment(userId: string, orderId: string) {
     await this.orderService.retryPayment(userId, orderId);
     return this.createRazorpayOrder(userId, orderId);
+  }
+
+  /**
+   * Refund a captured payment before cancelling the order.  The payment row is
+   * claimed first so concurrent cancel requests cannot issue a second refund.
+   */
+  async cancelOrder(userId: string, orderId: string) {
+    const order = await this.orderModel.findOne({ _id: orderId, userId }).exec();
+    if (!order) throw new ForbiddenException('Order not found');
+    if (order.paymentStatus === 'REFUNDED' && order.status === 'CANCELLED') return order;
+    if (order.paymentStatus !== 'PAID' || !['PAID', 'CONFIRMED', 'PROCESSING'].includes(order.status)) {
+      throw new BadRequestException('Only paid or processing orders can be cancelled');
+    }
+
+    const payment = await this.paymentModel.findOneAndUpdate(
+      { orderId: order._id, razorpayPaymentId: { $exists: true }, status: 'CAPTURED' },
+      { $set: { status: 'REFUND_PENDING' } },
+      { new: true, sort: { createdAt: -1 } },
+    ).exec();
+    if (!payment) {
+      const refundPending = await this.paymentModel.exists({ orderId: order._id, status: 'REFUND_PENDING' });
+      if (refundPending) throw new ConflictException('A refund is already being processed');
+      throw new BadRequestException('No captured payment is available to refund');
+    }
+
+    let refund: { id: string };
+    try {
+      refund = await this.razorpay().payments.refund(payment.razorpayPaymentId!, {
+        amount: payment.amount,
+        notes: { internal_order_id: order.id, reason: 'customer_cancelled' },
+      }) as { id: string };
+    } catch (error) {
+      await this.paymentModel.updateOne({ _id: payment._id, status: 'REFUND_PENDING' }, { $set: { status: 'CAPTURED' } }).exec();
+      this.logger.error(`Unable to refund payment ${payment.razorpayPaymentId}`, error);
+      throw new BadGatewayException('Unable to process refund; please try again');
+    }
+
+    const session = await this.paymentModel.db.startSession();
+    let cancelled: OrderDocument | null = null;
+    try {
+      await session.withTransaction(async () => {
+        const current = await this.orderModel.findOne({
+          _id: order._id,
+          userId,
+          paymentStatus: 'PAID',
+          status: { $in: ['PAID', 'CONFIRMED', 'PROCESSING'] },
+        }).session(session).exec();
+        if (!current) throw new ConflictException('Order can no longer be cancelled');
+        const completed = await this.paymentModel.updateOne(
+          { _id: payment._id, status: 'REFUND_PENDING' },
+          { $set: { status: 'REFUNDED', razorpayRefundId: refund.id } },
+          { session },
+        ).exec();
+        if (!completed.modifiedCount) throw new ConflictException('Refund is already being finalized');
+        current.status = 'CANCELLED';
+        current.paymentStatus = 'REFUNDED';
+        cancelled = await current.save({ session });
+        await this.orderService.releaseStock(current, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+    await this.notificationService.sendOrderNotification(cancelled!, 'CANCELLED');
+    return cancelled!;
+  }
+
+  private razorpay() {
+    const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
+    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET');
+    if (!keyId || !keySecret) throw new BadGatewayException('Payment gateway is not configured');
+    return new Razorpay({ key_id: keyId, key_secret: keySecret });
   }
 
   private async isCurrentPaymentAttempt(orderId: OrderDocument['_id'], paymentId: PaymentDocument['_id'], session: ClientSession) {
@@ -113,7 +196,12 @@ export class PaymentService {
   }
 
   private checkoutResponse(payment: PaymentDocument | any) {
-    this.logger.log(`Returning checkout response for Razorpay orderId: ${payment.razorpayOrderId}`);
+    if (!payment) {
+      this.logger.error('Invalid payment object passed to checkoutResponse');
+      throw new BadRequestException('Invalid payment object');
+    }
+
+    this.logger.log(`Returning checkout response for Razorpay orderId: ${payment?.razorpayOrderId}`);
 
     return {
       key: this.config.get<string>('RAZORPAY_KEY_ID'),
@@ -142,6 +230,7 @@ export class PaymentService {
     try {
       let duplicate = false;
       const confirmation = { order: null as OrderDocument | null };
+      const failure = { order: null as OrderDocument | null };
       await session.withTransaction(async () => {
         try {
           await this.eventModel.create([{ eventId, event: payload.event }], { session });
@@ -195,14 +284,14 @@ export class PaymentService {
           // Do not let a duplicate/late failure for an earlier attempt cancel a
           // newer retry that is already awaiting payment.
           if (failedPayment.modifiedCount && await this.isCurrentPaymentAttempt(order._id, payment._id, session)) {
-            await this.orderService.markPaymentFailed(order, session);
+            if (await this.orderService.markPaymentFailed(order, session)) failure.order = order;
           }
         }
       });
       if (confirmation.order) {
-        const user = await this.userModel.findById(confirmation.order.userId).select('email').lean().exec();
-        if (user) await this.notificationService.sendOrderConfirmation(confirmation.order, user.email);
+        void this.notificationService.sendOrderNotification(confirmation.order, 'PAID');
       }
+      if (failure.order) void this.notificationService.sendOrderNotification(failure.order, 'PAYMENT_FAILED');
       return { received: true, duplicate };
     } finally {
       await session.endSession();

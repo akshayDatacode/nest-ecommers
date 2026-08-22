@@ -9,11 +9,22 @@ import { Cart, CartSchema } from '../cart/schemas/cart.schema';
 import { AuthModule } from '../auth/auth.module';
 import { OrderModule } from '../order/order.module';
 import { NotificationModule } from '../notification/notification.module';
-import { User, UserSchema } from '../users/schemas/user.schema';
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Payment.name, schema: PaymentSchema }, { name: WebhookEvent.name, schema: WebhookEventSchema }, { name: Order.name, schema: OrderSchema }, { name: Cart.name, schema: CartSchema }, { name: User.name, schema: UserSchema }]), AuthModule, OrderModule, NotificationModule],
+  imports: [
+    MongooseModule.forFeature(
+      [
+        { name: Payment.name, schema: PaymentSchema },
+        { name: WebhookEvent.name, schema: WebhookEventSchema },
+        { name: Order.name, schema: OrderSchema },
+        { name: Cart.name, schema: CartSchema }
+      ]),
+    AuthModule,
+    OrderModule,
+    NotificationModule
+  ],
   providers: [PaymentService],
   controllers: [PaymentController, OrderPaymentController],
 })
-export class PaymentModule {}
+
+export class PaymentModule { }

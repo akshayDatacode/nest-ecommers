@@ -31,8 +31,9 @@
 2. Create a delivery address through `POST /api/addresses`.
 3. Create the inventory-reserving order with `POST /api/orders` and `{ "addressId": "..." }`. Send a unique `Idempotency-Key` header so client retries cannot create a second order.
 4. Start checkout using `POST /api/payment/razorpay/orders` and `{ "orderId": "..." }`. Pass its `key`, `razorpayOrderId`, `amount`, and `currency` to Razorpay Checkout.
-5. Razorpay calls `POST /api/payment/razorpay/webhook`. Only a verified `payment.captured` webhook changes the order to `CONFIRMED`; the browser redirect is never trusted as payment confirmation.
-6. Admins advance a confirmed order with `PATCH /api/orders/:id/status`: `PACKED` → `SHIPPED` → `DELIVERED`.
+5. Razorpay calls `POST /api/payment/razorpay/webhook`. Only a verified `payment.captured` webhook changes the order to `PAID`; the browser redirect is never trusted as payment confirmation.
+6. Admins advance a paid order with `PATCH /api/orders/:id/status`: `PROCESSING` → `PACKED` → `SHIPPED` → `OUT_FOR_DELIVERY` → `DELIVERED`.
+7. A customer may cancel an unshipped paid/processing order with `POST /api/orders/:id/cancel`. The captured Razorpay payment is refunded before the order is cancelled and its stock is restored.
 
 `payment.failed` cancels the pending order and returns its reserved stock. Webhook event IDs and payment/order transitions are idempotent, so Razorpay retries are safe.
 
@@ -43,11 +44,20 @@ MONGO_URI=mongodb://.../ecommerce?replicaSet=rs0
 RAZORPAY_KEY_ID=rzp_live_...
 RAZORPAY_KEY_SECRET=...
 RAZORPAY_WEBHOOK_SECRET=...
+REDIS_URL=redis://127.0.0.1:6379
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASSWORD=...
+SMTP_FROM=orders@example.com
+STORE_URL=https://store.example.com
 JWT_ACCESS_SECRET=...
 JWT_REFRESH_SECRET=...
 ```
 
 MongoDB transactions protect stock reservation, order creation, and webhook state changes; therefore production MongoDB must run as a replica set (Atlas satisfies this). Configure Razorpay to send `payment.captured` and `payment.failed` to `/api/payment/razorpay/webhook` and set the webhook secret above.
+
+Order lifecycle email is sent by a BullMQ worker backed by `REDIS_URL`, with exponential retries. It is queued for payment confirmation/failure, shipment, out-for-delivery, delivery, and cancellation, so SMTP latency cannot delay the Razorpay webhook response.
 
 ## Project setup
 
