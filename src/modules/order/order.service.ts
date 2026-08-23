@@ -9,7 +9,7 @@ import { ShippingService } from '../shipping/shipping.service';
 import { UpdateShippingDto } from './dto/order.dto';
 import { NotificationService } from '../notification/notification.service';
 
-const PAYMENT_HOLD_MS = 60 * 60 * 10 // 6 minits;
+const PAYMENT_HOLD_MS = 60 * 60 * 100 // 6 minits;
 
 @Injectable()
 export class OrderService implements OnModuleInit, OnModuleDestroy {
