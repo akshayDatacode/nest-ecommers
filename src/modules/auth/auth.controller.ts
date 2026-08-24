@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { SendOtpDto, VerifyOtpDto } from './dto/phone-otp.dto';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
@@ -40,6 +41,38 @@ export class AuthController {
       dto.email,
       dto.password,
     );
+  }
+
+  @Post('otp/send')
+  @Throttle({ default: { limit: 3, ttl: 10 * 60 * 1000 } })
+  sendLoginOtp(@Body() dto: SendOtpDto) {
+    return this.authService.sendLoginOtp(dto.phoneNumber);
+  }
+
+  @Post('otp/verify')
+  @Throttle({ default: { limit: 5, ttl: 10 * 60 * 1000 } })
+  verifyLoginOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyLoginOtp(dto.phoneNumber, dto.code);
+  }
+
+  @Post('phone/send-verification')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 3, ttl: 10 * 60 * 1000 } })
+  sendPhoneEnrollmentOtp(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: SendOtpDto,
+  ) {
+    return this.authService.sendPhoneEnrollmentOtp(userId, dto.phoneNumber);
+  }
+
+  @Post('phone/verify')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 10 * 60 * 1000 } })
+  verifyPhoneEnrollmentOtp(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: VerifyOtpDto,
+  ) {
+    return this.authService.verifyPhoneEnrollmentOtp(userId, dto.phoneNumber, dto.code);
   }
 
   @Post('refresh')

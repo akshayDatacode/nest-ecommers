@@ -53,11 +53,23 @@ SMTP_FROM=orders@example.com
 STORE_URL=https://store.example.com
 JWT_ACCESS_SECRET=...
 JWT_REFRESH_SECRET=...
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_VERIFY_SERVICE_SID=VA...
 ```
 
 MongoDB transactions protect stock reservation, order creation, and webhook state changes; therefore production MongoDB must run as a replica set (Atlas satisfies this). Configure Razorpay to send `payment.captured` and `payment.failed` to `/api/payment/razorpay/webhook` and set the webhook secret above.
 
 Order lifecycle email is sent by a BullMQ worker backed by `REDIS_URL`, with exponential retries. It is queued for payment confirmation/failure, shipment, out-for-delivery, delivery, and cancellation, so SMTP latency cannot delay the Razorpay webhook response.
+
+## Phone OTP authentication
+
+Phone OTP uses Twilio Verify, so codes are generated, expired, and attempt-limited by Twilio rather than stored by this application. Phone numbers must be submitted in E.164 form (for example, `+14155552671`).
+
+1. An authenticated user enrolls a phone with `POST /api/auth/phone/send-verification`, then `POST /api/auth/phone/verify`, both with `{ "phoneNumber": "+14155552671" }` (include `code` when verifying).
+2. Login uses `POST /api/auth/otp/send` and `POST /api/auth/otp/verify` with `phoneNumber`; the verify request also includes `code` and returns the existing JWT token pair.
+
+The public OTP endpoints intentionally return a generic send response and only dispatch to an enrolled, active number. This reduces account enumeration and SMS-pumping abuse. Send requests are limited to 3 per 10 minutes and checks to 5 per 10 minutes per throttler key; deploy behind a trusted reverse proxy so client IPs are available to Nest's throttler.
 
 ## Project setup
 

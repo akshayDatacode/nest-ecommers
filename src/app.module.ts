@@ -17,6 +17,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { OtpModule } from './modules/otp/otp.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { ShippingModule } from './modules/shipping/shipping.module';
     NotificationModule,
     ShippingModule,
     AdminModule,
+    OtpModule,
   ],
 })
 export class AppModule { }

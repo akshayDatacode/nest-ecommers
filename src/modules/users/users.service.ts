@@ -31,12 +31,23 @@ export class UsersService {
   ) { }
 
   async findByEmail(email: string) {
-    console.log("email from user service", email)
     return this.userModel
       .findOne({
         email: email?.toLowerCase(),
       })
       .exec();
+  }
+
+  async findByPhoneNumber(phoneNumber: string) {
+    return this.userModel.findOne({ phoneNumber }).exec();
+  }
+
+  async setVerifiedPhoneNumber(userId: string, phoneNumber: string) {
+    return this.userModel.findByIdAndUpdate(
+      userId,
+      { phoneNumber, phoneVerified: true },
+      { new: true, runValidators: true },
+    ).exec();
   }
 
   async findById(id: string) {
@@ -64,7 +75,7 @@ export class UsersService {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
     const user = await this.userModel.create({
       name,
       email: email?.toLowerCase(),

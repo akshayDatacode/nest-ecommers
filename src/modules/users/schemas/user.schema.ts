@@ -16,6 +16,16 @@ export class User {
   email: string;
 
   @Prop({
+    unique: true,
+    sparse: true,
+    trim: true,
+  })
+  phoneNumber?: string;
+
+  @Prop({ default: false })
+  phoneVerified: boolean;
+
+  @Prop({
     required: true,
     minlength: 8,
   })

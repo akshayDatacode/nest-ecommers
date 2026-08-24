@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
 
 import {
@@ -11,12 +12,13 @@ import {
 import * as bcrypt from 'bcrypt';
 
 import { UsersService } from '../users/users.service';
+import { OtpService } from '../otp/otp.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
-
+    private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
   ) { }
 
@@ -26,16 +28,11 @@ export class AuthService {
     password: string,
     role: 'admin' | 'manager' | 'user'
   ) {
-    const hashedPassword = await bcrypt.hash(
-      password,
-      12,
-    );
-
     const user =
       await this.usersService.createUser(
         name,
         email,
-        hashedPassword,
+        password,
         role,
       );
 
@@ -46,8 +43,6 @@ export class AuthService {
     email: string,
     password: string,
   ) {
-    console.log("email from login", email)
-    console.log("email from password", password)
     const user =
       await this.usersService.findByEmail(email);
 
@@ -88,7 +83,7 @@ export class AuthService {
 
       const user = await this.usersService.findById(payload.sub);
 
-      if (!user || user.refreshToken !== oldRefreshToken) {
+      if (!user?.refreshToken || !await bcrypt.compare(oldRefreshToken, user.refreshToken)) {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
@@ -104,7 +99,7 @@ export class AuthService {
       );
 
       // Update the refresh token in the database
-      await this.usersService.updateRefreshToken(user._id, newRefreshToken);
+      await this.storeRefreshToken(user._id.toString(), newRefreshToken);
 
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch (error) {
@@ -151,7 +146,7 @@ export class AuthService {
 
     // Save the refresh token in the database
     // Update the refresh token in the database
-    await this.usersService.updateRefreshToken(user._id, refreshToken);
+    await this.storeRefreshToken(user._id, refreshToken);
 
     return {
       accessToken,
@@ -162,7 +157,70 @@ export class AuthService {
         email: user.email,
         role: user.role,
         emailVerified: user.emailVerified,
+        phoneNumber: user.phoneNumber,
+        phoneVerified: user.phoneVerified,
       },
     };
+  }
+
+  // Send OTP for login
+  async sendLoginOtp(phoneNumber: string): Promise<{ message: string }> {
+    const user = await this.usersService.findByPhoneNumber(phoneNumber);
+
+    if (user?.isActive && user.phoneVerified) {
+      console.log("d", )
+      await this.otpService.sendOtp(phoneNumber); // Use OtpService to send OTP
+    }
+
+    return { message: 'If this phone number is eligible, a verification code has been sent.' };
+  }
+
+  // Verify OTP for login
+  async verifyLoginOtp(phoneNumber: string, code: string): Promise<{ accessToken: string; refreshToken: string }> {
+    const user = await this.usersService.findByPhoneNumber(phoneNumber);
+    const isValid = await this.otpService.validateOtp(phoneNumber, code); // Validate OTP
+
+    if (!isValid || !user || !user.isActive || !user.phoneVerified) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // Generate JWT tokens
+    // Reuse the existing generateAccessToken method to generate tokens
+    return this.generateAccessToken(user);
+  }
+
+  // Send OTP for phone enrollment
+  async sendPhoneEnrollmentOtp(userId: string, phoneNumber: string): Promise<{ message: string }> {
+    const existingUser = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (existingUser && existingUser._id.toString() !== userId) {
+      throw new ConflictException('This phone number is already in use');
+    }
+
+    await this.otpService.sendOtp(phoneNumber); // Use OtpService to send OTP
+    return { message: 'Verification code sent to phone number.' };
+  }
+
+  // Verify OTP for phone enrollment
+  async verifyPhoneEnrollmentOtp(userId: string, phoneNumber: string, code: string): Promise<{ message: string; phoneNumber: string }> {
+    const isValid = await this.otpService.validateOtp(phoneNumber, code); // Validate OTP
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    const existingUser = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (existingUser && existingUser._id.toString() !== userId) {
+      throw new ConflictException('This phone number is already in use');
+    }
+
+    const user = await this.usersService.setVerifiedPhoneNumber(userId, phoneNumber);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return { message: 'Phone number verified successfully', phoneNumber: user.phoneNumber || "" };
+  }
+
+  private async storeRefreshToken(userId: string, refreshToken: string) {
+    await this.usersService.updateRefreshToken(userId, await bcrypt.hash(refreshToken, 12));
   }
 }

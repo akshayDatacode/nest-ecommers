@@ -5,20 +5,22 @@ import { UsersModule } from '../users/users.module';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { TwilioVerifyService } from './twilio-verify.service';
+import { UsersService } from '../users/users.service';
+import { OtpModule } from '../otp/otp.module';
 
 @Module({
   imports: [
     forwardRef(() => UsersModule),
 
     JwtModule.register({
-      secret: (() => {
-        console.log('JWT_ACCESS_SECRET:', process.env.JWT_ACCESS_SECRET); // Debug log
-        return process.env.JWT_ACCESS_SECRET;
-      })(),
+      secret: process.env.JWT_ACCESS_SECRET,
       signOptions: {
         expiresIn: '15m',
       },
     }),
+
+    OtpModule
   ],
 
   controllers: [
@@ -27,6 +29,8 @@ import { AuthService } from './auth.service';
 
   providers: [
     AuthService,
+    UsersService,
+    TwilioVerifyService,
   ],
 
   exports: [
