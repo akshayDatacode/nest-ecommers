@@ -5,8 +5,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express'; // Import Response from express
 import { Throttle } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
@@ -36,11 +38,30 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) response: Response,) {
+
+    const { accessToken, refreshToken, user } = await this.authService.login(
       dto.email,
       dto.password,
-    );
+    )
+
+    // Set HTTP-only cookies
+    response.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    response.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/auth/refresh', // Only send this cookie to the refresh endpoint
+    });
+
+    return { accessToken, refreshToken, user };
   }
 
   @Post('otp/send')

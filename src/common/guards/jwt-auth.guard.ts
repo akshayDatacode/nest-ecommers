@@ -22,28 +22,29 @@ export class JwtAuthGuard
     const request =
       context.switchToHttp().getRequest();
 
-    const authorization =
-      request.headers.authorization;
+    // Check for the token in the Authorization header
+    const authorization = request.headers.authorization;
+    let token: string | undefined;
 
-    if (!authorization) {
-      throw new UnauthorizedException(
-        'Authorization token is required',
-      );
+    if (authorization) {
+      const [type, authToken] = authorization.split(' ');
+
+      if (type === 'Bearer' && authToken) {
+        token = authToken;
+      }
     }
 
-    const [type, token] =
-      authorization.split(' ');
+    // If no token in the header, check for the token in cookies
+    if (!token) {
+      token = request.cookies?.access_token; // Check for the access_token cookie
+    }
 
-    if (
-      type !== 'Bearer' ||
-      !token
-    ) {
-      throw new UnauthorizedException(
-        'Invalid authorization format',
-      );
+    if (!token) {
+      throw new UnauthorizedException('Authorization token is required');
     }
 
     try {
+      // Verify the token
       const payload =
         await this.jwtService.verifyAsync<AuthUser>(
           token,

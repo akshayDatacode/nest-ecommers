@@ -1,9 +1,11 @@
+import cookieParser from "cookie-parser";
 import * as dotenv from 'dotenv';
 dotenv.config();
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+
 
 async function bootstrap() {
   // rawBody is required to verify Razorpay's webhook signature against the
@@ -19,6 +21,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  app.use(cookieParser());  // Use cookie-parser middleware
 
   // Enable CORS
   app.enableCors({
