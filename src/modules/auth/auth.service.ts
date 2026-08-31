@@ -107,6 +107,38 @@ export class AuthService {
     }
   }
 
+  async validateToken(token?: string, request?: any): Promise<any> {
+    try {
+      // Check for token in Authorization header or cookies if not provided
+      if (!token) {
+        const authorization = request.headers.authorization;
+        if (authorization) {
+          const [type, authToken] = authorization.split(' ');
+          if (type === 'Bearer' && authToken) {
+            token = authToken;
+          }
+        }
+
+        if (!token) {
+          token = request.cookies?.access_token; // Check for the access_token cookie
+        }
+      }
+
+      if (!token) {
+        throw new UnauthorizedException('Token is required for validation');
+      }
+
+      // Verify the token
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: process.env.JWT_ACCESS_SECRET,
+      });
+
+      return payload; // Return the decoded payload
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+  }
+
   async logout(userId: string) {
     const user = await this.usersService.findById(userId);
 
@@ -168,7 +200,7 @@ export class AuthService {
     const user = await this.usersService.findByPhoneNumber(phoneNumber);
 
     if (user?.isActive && user.phoneVerified) {
-      console.log("d", )
+      console.log("d",)
       await this.otpService.sendOtp(phoneNumber); // Use OtpService to send OTP
     }
 

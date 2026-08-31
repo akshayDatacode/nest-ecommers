@@ -5,7 +5,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express'; // Import Response from express
@@ -46,22 +48,23 @@ export class AuthController {
     )
 
     // Set HTTP-only cookies
-    response.cookie('access_token', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    });
-
-    response.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/auth/refresh', // Only send this cookie to the refresh endpoint
-    });
+    this.setAuthCookies(response, accessToken, refreshToken);
 
     return { accessToken, refreshToken, user };
+  }
+
+  @Post('validate')
+  async validateToken(
+    @Res({ passthrough: true }) response: Response,
+    @Body('token') token?: string,
+    @Req() request?: any,
+  ) {
+    try {
+      const payload = await this.authService.validateToken(token, request);
+      return { valid: true, payload };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
   }
 
   @Post('otp/send')
@@ -150,5 +153,22 @@ export class AuthController {
     @Body('newPassword') newPassword: string,
   ) {
     return this.usersService.changePassword(userId, currentPassword, newPassword);
+  }
+
+  private setAuthCookies(response: Response, accessToken: string, refreshToken: string) {
+    response.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    response.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/auth/refresh',
+    });
   }
 }
