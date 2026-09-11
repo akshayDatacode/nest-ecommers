@@ -26,7 +26,12 @@ async function bootstrap() {
   app.use(cookieParser());  // Use cookie-parser middleware
 
   // Enable CORS
-  app.enableCors();
+  // Allow CORS from all origins
+  app.enableCors({
+    origin: '*',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: '*',
+  });
 
   const port = process.env.PORT || 5000;
 
