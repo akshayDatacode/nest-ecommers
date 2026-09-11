@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import cookieParser from "cookie-parser";
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -25,12 +26,13 @@ async function bootstrap() {
   app.use(cookieParser());  // Use cookie-parser middleware
 
   // Enable CORS
-  app.enableCors({
-    origin: 'http://localhost:3000', // Allow requests from this origin
-    credentials: true, // Allow cookies and credentials
-  });
+  app.enableCors();
 
-  await app.listen(process.env.PORT ?? 5000);
+  const port = process.env.PORT || 5000;
+
+  await app.listen(port, '0.0.0.0');
+
+  console.log(`Application running on port ${port}`);
 }
 
 bootstrap();
