@@ -32,6 +32,7 @@ async function bootstrap() {
       'http://localhost:3000',
       'https://elanjewels.netlify.app',
     ],
+    credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: '*',
   });
