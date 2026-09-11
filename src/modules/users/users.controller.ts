@@ -7,9 +7,9 @@ import {
 import { UsersService } from './users.service';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import type { AuthUser } from 'src/common/interfaces/auth-user.interface';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { AdminGuard } from 'src/common/guards/admin.guard';
+import type { AuthUser } from '../../common/interfaces/auth-user.interface';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AdminGuard } from '../../common/guards/admin.guard';
 
 @Controller('users')
 export class UsersController {

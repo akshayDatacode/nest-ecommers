@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { Product } from './schemas/product.schema';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { ManagerGuard } from 'src/common/guards/manager.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ManagerGuard } from '../../common/guards/manager.guard';
 
 @Controller('products')
 export class ProductController {
