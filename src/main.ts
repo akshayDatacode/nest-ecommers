@@ -29,12 +29,17 @@ async function bootstrap() {
   // Allow CORS from all origins
   app.enableCors({
     origin: [
-      'http://localhost:3000',
-      'https://elanjewels.netlify.app',
+      'http://localhost:3000', // Local frontend
+      'https://elanjewels.netlify.app', // Production frontend
     ],
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: '*',
+    credentials: true, // Allow cookies and credentials
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // Allowed HTTP methods
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+    ], // Explicitly specify allowed headers
   });
 
   const port = process.env.PORT || 5000;
