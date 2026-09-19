@@ -63,6 +63,7 @@ export class ProductService {
 
     return {
       ...product.toObject(),
+      userId,
       isInCart,
       isOrdered,
     };
