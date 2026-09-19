@@ -3,6 +3,7 @@ import { ProductService } from './product.service';
 import { Product } from './schemas/product.schema';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ManagerGuard } from '../../common/guards/manager.guard';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 
 @Controller('products')
 export class ProductController {
@@ -14,8 +15,11 @@ export class ProductController {
   }
 
   @Get(':id')
-  async getProductById(@Param('id') productId: string) {
-    return this.productService.getProductById(productId);
+  async getProductById(
+    @Param('id') productId: string,
+    @CurrentUser('sub') userId?: string, // Make userId optional
+  ) {
+    return this.productService.getProductById(productId, userId);
   }
 
   @Post()

@@ -2,11 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
+import { Cart, CartDocument } from '../cart/schemas/cart.schema';
+import { Order, OrderDocument } from '../order/schemas/order.schema';
 
 @Injectable()
 export class ProductService {
   constructor(
     @InjectModel(Product.name) private readonly productModel: Model<ProductDocument>,
+    @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
+    @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
   ) { }
 
   /**
@@ -42,12 +46,26 @@ export class ProductService {
     return this.productModel.find().exec();
   }
 
-  async getProductById(productId: string) {
+  async getProductById(productId: string, userId?: string) {
     const product = await this.productModel.findById(productId).exec();
     if (!product) {
       throw new NotFoundException('Product not found');
     }
-    return product;
+
+    let isInCart = false;
+    let isOrdered = false;
+
+    // If userId is provided, check cart and orders
+    if (userId) {
+      isInCart = !!(await this.cartModel.exists({ userId, 'items.productId': productId }));
+      isOrdered = !!(await this.orderModel.exists({ userId, 'items.productId': productId }));
+    }
+
+    return {
+      ...product.toObject(),
+      isInCart,
+      isOrdered,
+    };
   }
 
   async createProduct(data: Partial<Product>) {
