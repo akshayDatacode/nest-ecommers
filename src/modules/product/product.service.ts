@@ -57,8 +57,16 @@ export class ProductService {
 
     // If userId is provided, check cart and orders
     if (userId) {
-      isInCart = !!(await this.cartModel.exists({ userId, 'items.productId': productId }));
-      isOrdered = !!(await this.orderModel.exists({ userId, 'items.productId': productId }));
+      console.log("UserId", userId)
+      isInCart = !!(await this.cartModel.exists({
+        userId,
+        items: { $elemMatch: { productId: product._id } },
+      }));
+
+      isOrdered = !!(await this.orderModel.exists({
+        userId,
+        items: { $elemMatch: { productId: product._id } },
+      }));
     }
 
     return {
